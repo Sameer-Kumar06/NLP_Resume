@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NLP Resume Screener</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <h1>NLP Resume Screening App</h1>
+      <p>Flask + NLTK based candidate ranking using semantic matching and required skills overlap.</p>
+    </header>
+
+    <section class="card">
+      {% if error %}
+        <div class="alert">{{ error }}</div>
+      {% endif %}
+
+      <form action="/screen" method="post" enctype="multipart/form-data">
+        <div class="grid">
+          <div>
+            <label>Choose sample role (dataset)</label>
+            <select name="job_role">
+              <option value="">-- Select a role --</option>
+              {% for job in jobs %}
+                <option value="{{ job.job_role }}">{{ job.job_role }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Upload resumes (.pdf/.txt)</label>
+            <input type="file" name="resumes" accept=".pdf,.txt" multiple required>
+          </div>
+        </div>
+
+        <label>Or paste custom job description</label>
+        <textarea name="job_description" rows="8" placeholder="Paste custom JD here...">{{ selected_jd }}</textarea>
+
+        <button type="submit">Screen Candidates</button>
+      </form>
+    </section>
+
+    {% if results %}
+      <section class="card">
+        <h2>Ranked Candidates</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Resume</th>
+              <th>Final Score</th>
+              <th>Semantic Score</th>
+              <th>Skill Score</th>
+              <th>Matched Skills</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for result in results %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ result.filename }}</td>
+                <td>{{ '%.2f'|format(result.final_score) }}%</td>
+                <td>{{ '%.2f'|format(result.semantic_score) }}%</td>
+                <td>{{ '%.2f'|format(result.skill_score) }}%</td>
+                <td>{{ result.matched_skills | join(', ') if result.matched_skills else '-' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+  </div>
+</body>
+</html>

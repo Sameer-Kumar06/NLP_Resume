@@ -1,0 +1,6 @@
+job_role,job_description,required_skills
+NLP Engineer,"Build NLP pipelines for entity extraction, text classification, and LLM applications. Collaborate with product teams and deploy models.","python,nlp,machine learning,transformers,pytorch,sql,git"
+Data Scientist,"Analyze business data, build predictive models, and communicate insights to stakeholders.","python,sql,machine learning,statistics,data visualization,communication"
+Backend Developer,"Develop scalable REST APIs and microservices with proper testing and deployment.","python,java,rest api,docker,kubernetes,sql,git"
+MLOps Engineer,"Create CI/CD workflows for machine learning systems and manage cloud infrastructure.","python,aws,azure,docker,kubernetes,linux,git"
+AI Product Analyst,"Define AI product metrics, evaluate model outputs, and present recommendations.","excel,sql,data analysis,communication,project management,machine learning"

@@ -1,25 +1,26 @@
-# NLP Resume Screening App (Flask + NLTK)
+# NLP Resume Screening App
 
-A simple NLP-based resume screening web app with a clean UI, built using **Flask** and **NLTK**.
+A simple, clean **NLP-based resume screening web app** built with **Streamlit**.
 
-## What this project includes
+## Features
 
-- Clean Flask UI for screening resumes
-- Dataset-driven role selection (`data/job_roles_dataset.csv`)
-- Optional custom job description input
-- Upload multiple resumes (`.pdf`, `.txt`)
-- NLP scoring with:
-  - **NLTK preprocessing** (tokenization, stopword removal, lemmatization)
-  - **TF-IDF + cosine similarity** for semantic matching
-  - **Skill overlap score** using dataset skill catalog
-- Final weighted score (`75% semantic + 25% skills`)
+- Upload multiple resumes (`.pdf` or `.txt`)
+- Paste a job description
+- NLP-based ranking using:
+  - **TF-IDF + Cosine Similarity** (semantic match)
+  - **Skill overlap score** from job-description skills
+- Final weighted score:
+  - `70% semantic match`
+  - `30% skill overlap`
+- Clean UI with ranked table + top candidate snapshot
 
-## Project structure
+## Tech Stack
 
-- `app.py` – Flask app and NLP pipeline
-- `templates/index.html` – UI template
-- `static/styles.css` – styling
-- `data/job_roles_dataset.csv` – sample job role dataset
+- Python
+- Streamlit
+- scikit-learn
+- pandas
+- pypdf
 
 ## Run locally
 
@@ -27,12 +28,12 @@ A simple NLP-based resume screening web app with a clean UI, built using **Flask
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python app.py
+streamlit run app.py
 ```
 
-Open `http://127.0.0.1:5000`.
+Then open the local URL shown by Streamlit (usually `http://localhost:8501`).
 
 ## Notes
 
-- On first run, NLTK resources are auto-downloaded if missing.
-- This is a starter screening tool; tune scoring and skills taxonomy for production.
+- Better results come from clear job descriptions with explicit required skills.
+- This is a starter screening tool; for production use, add stronger parsing, model calibration, and bias checks.

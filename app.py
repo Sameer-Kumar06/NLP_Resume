@@ -1,45 +1,29 @@
 import io
-import os
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 
-import nltk
 import pandas as pd
-from flask import Flask, render_template, request
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
+import streamlit as st
 from pypdf import PdfReader
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from werkzeug.utils import secure_filename
 
 
-def ensure_nltk_resources() -> None:
-    resources = [
-        ("tokenizers/punkt", "punkt"),
-        ("corpora/stopwords", "stopwords"),
-        ("corpora/wordnet", "wordnet"),
-        ("corpora/omw-1.4", "omw-1.4"),
-    ]
-    for path, name in resources:
-        try:
-            nltk.data.find(path)
-        except LookupError:
-            nltk.download(name, quiet=True)
-
-
-ensure_nltk_resources()
-STOP_WORDS = set(stopwords.words("english"))
-LEMMATIZER = WordNetLemmatizer()
+COMMON_SKILLS = {
+    "python", "java", "sql", "aws", "azure", "gcp", "docker", "kubernetes",
+    "nlp", "machine learning", "deep learning", "pytorch", "tensorflow", "scikit-learn",
+    "data analysis", "data visualization", "excel", "tableau", "power bi", "spark",
+    "hadoop", "git", "linux", "rest api", "flask", "django", "fastapi", "streamlit",
+    "communication", "leadership", "project management", "statistics", "llm", "transformers",
+}
 
 
 @dataclass
 class CandidateResult:
-    filename: str
+    name: str
     semantic_score: float
-    skill_score: float
+    skill_overlap_score: float
     final_score: float
     matched_skills: List[str]
 
@@ -50,141 +34,147 @@ def read_pdf(file_bytes: bytes) -> str:
     return "\n".join(pages)
 
 
-def preprocess_text(text: str) -> str:
+def normalize_text(text: str) -> str:
     text = text.lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    tokens = word_tokenize(text)
-    cleaned = [LEMMATIZER.lemmatize(t) for t in tokens if t not in STOP_WORDS and len(t) > 2]
-    return " ".join(cleaned)
+    text = re.sub(r"[^a-z0-9\s+#.-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
-def normalize_skill(skill: str) -> str:
-    return re.sub(r"\s+", " ", skill.strip().lower())
+def extract_skills(text: str) -> List[str]:
+    t = normalize_text(text)
+    found = [skill for skill in COMMON_SKILLS if skill in t]
+    return sorted(set(found))
 
 
-def extract_skills(text: str, skill_catalog: List[str]) -> List[str]:
-    normalized_text = text.lower()
-    matched = [s for s in skill_catalog if normalize_skill(s) in normalized_text]
-    return sorted(set(matched))
+def score_resumes(job_description: str, resumes: List[Tuple[str, str]]) -> List[CandidateResult]:
+    docs = [normalize_text(job_description)] + [normalize_text(text) for _, text in resumes]
 
+    vectorizer = TfidfVectorizer(stop_words=list(ENGLISH_STOP_WORDS), ngram_range=(1, 2), min_df=1)
+    tfidf = vectorizer.fit_transform(docs)
 
-def score_candidates(job_description: str, resumes: List[dict], skill_catalog: List[str]) -> List[CandidateResult]:
-    processed_docs = [preprocess_text(job_description)] + [preprocess_text(r["text"]) for r in resumes]
-    vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=1)
-    matrix = vectorizer.fit_transform(processed_docs)
+    jd_vec = tfidf[0:1]
+    resume_vecs = tfidf[1:]
+    semantic_scores = cosine_similarity(resume_vecs, jd_vec).flatten()
 
-    job_vector = matrix[0:1]
-    resume_vectors = matrix[1:]
-    semantic_scores = cosine_similarity(resume_vectors, job_vector).flatten()
+    jd_skills = set(extract_skills(job_description))
 
-    jd_skills = set(extract_skills(job_description, skill_catalog))
     results: List[CandidateResult] = []
-    for idx, resume in enumerate(resumes):
-        resume_skills = set(extract_skills(resume["text"], skill_catalog))
-        overlap = len(jd_skills & resume_skills) / len(jd_skills) if jd_skills else 0.0
-        semantic = float(semantic_scores[idx])
-        final = (0.75 * semantic) + (0.25 * overlap)
+    for i, (name, resume_text) in enumerate(resumes):
+        resume_skills = set(extract_skills(resume_text))
+        if jd_skills:
+            overlap = len(jd_skills.intersection(resume_skills)) / len(jd_skills)
+        else:
+            overlap = 0.0
+
+        semantic = float(semantic_scores[i])
+        final = (0.7 * semantic) + (0.3 * overlap)
+
         results.append(
             CandidateResult(
-                filename=resume["name"],
+                name=name,
                 semantic_score=semantic * 100,
-                skill_score=overlap * 100,
+                skill_overlap_score=overlap * 100,
                 final_score=final * 100,
-                matched_skills=sorted(jd_skills & resume_skills),
+                matched_skills=sorted(jd_skills.intersection(resume_skills)),
             )
         )
+
     return sorted(results, key=lambda x: x.final_score, reverse=True)
 
 
-def parse_uploaded_file(file_storage) -> str:
-    raw = file_storage.read()
-    if file_storage.filename.lower().endswith(".pdf"):
-        return read_pdf(raw)
-    return raw.decode("utf-8", errors="ignore")
+def read_resume_file(uploaded_file) -> str:
+    data = uploaded_file.read()
+    if uploaded_file.name.lower().endswith(".pdf"):
+        return read_pdf(data)
+    return data.decode("utf-8", errors="ignore")
 
 
-def load_jobs_dataset(path: str = "data/job_roles_dataset.csv") -> pd.DataFrame:
-    return pd.read_csv(path)
+def app() -> None:
+    st.set_page_config(page_title="NLP Resume Screener", page_icon="🧠", layout="wide")
 
-
-app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
-
-
-@app.route("/", methods=["GET"])
-def index():
-    jobs = load_jobs_dataset()
-    return render_template("index.html", jobs=jobs.to_dict("records"), results=None, selected_jd="", error=None)
-
-
-@app.route("/screen", methods=["POST"])
-def screen():
-    jobs = load_jobs_dataset()
-    selected_job = request.form.get("job_role", "")
-    custom_jd = request.form.get("job_description", "").strip()
-    files = request.files.getlist("resumes")
-
-    jd_text = custom_jd
-    if not jd_text and selected_job:
-        match = jobs[jobs["job_role"] == selected_job]
-        if not match.empty:
-            jd_text = str(match.iloc[0]["job_description"])
-
-    if not jd_text:
-        return render_template(
-            "index.html",
-            jobs=jobs.to_dict("records"),
-            results=None,
-            selected_jd="",
-            error="Please pick a role or paste a job description.",
-        )
-
-    if not files or files[0].filename == "":
-        return render_template(
-            "index.html",
-            jobs=jobs.to_dict("records"),
-            results=None,
-            selected_jd=jd_text,
-            error="Please upload at least one resume (.pdf or .txt).",
-        )
-
-    skill_catalog = sorted(
-        set(
-            skill.strip()
-            for skill_cell in jobs["required_skills"].fillna("")
-            for skill in str(skill_cell).split(",")
-            if skill.strip()
-        )
+    st.markdown(
+        """
+        <style>
+        .main-title {font-size: 2.2rem; font-weight: 700; color: #0f172a; margin-bottom: 0.25rem;}
+        .subtitle {color: #475569; margin-bottom: 1.5rem;}
+        .card {background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem;}
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
 
-    resumes = []
-    for file in files:
-        filename = secure_filename(file.filename)
-        if not filename:
-            continue
-        ext = os.path.splitext(filename)[1].lower()
-        if ext not in {".pdf", ".txt"}:
-            continue
-        resumes.append({"name": filename, "text": parse_uploaded_file(file)})
+    st.markdown('<div class="main-title">🧠 NLP Resume Screening App</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="subtitle">Rank candidates with TF-IDF semantic matching + skill overlap scoring.</div>',
+        unsafe_allow_html=True,
+    )
 
-    if not resumes:
-        return render_template(
-            "index.html",
-            jobs=jobs.to_dict("records"),
-            results=None,
-            selected_jd=jd_text,
-            error="Only .pdf and .txt files are supported.",
+    left, right = st.columns([1.2, 1])
+
+    with left:
+        st.markdown("#### 1) Paste Job Description")
+        job_description = st.text_area(
+            "Job Description",
+            height=280,
+            placeholder="Paste the role requirements, must-have skills, responsibilities...",
+            label_visibility="collapsed",
         )
 
-    results = score_candidates(jd_text, resumes, skill_catalog)
-    return render_template(
-        "index.html",
-        jobs=jobs.to_dict("records"),
-        results=results,
-        selected_jd=jd_text,
-        error=None,
-    )
+    with right:
+        st.markdown("#### 2) Upload Resumes")
+        files = st.file_uploader(
+            "Upload .pdf or .txt resumes",
+            type=["pdf", "txt"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
+        st.caption("Tip: include skill keywords in JD for better matching quality.")
+
+    run = st.button("Screen Candidates", type="primary", use_container_width=True)
+
+    if run:
+        if not job_description.strip():
+            st.error("Please provide a job description.")
+            return
+        if not files:
+            st.error("Please upload at least one resume.")
+            return
+
+        resumes: List[Tuple[str, str]] = []
+        for f in files:
+            resumes.append((f.name, read_resume_file(f)))
+
+        results = score_resumes(job_description, resumes)
+
+        st.markdown("---")
+        st.markdown("### Ranked Candidates")
+
+        df = pd.DataFrame(
+            [
+                {
+                    "Rank": idx + 1,
+                    "Candidate": r.name,
+                    "Final Score": round(r.final_score, 2),
+                    "Semantic Match": round(r.semantic_score, 2),
+                    "Skill Match": round(r.skill_overlap_score, 2),
+                    "Matched Skills": ", ".join(r.matched_skills) if r.matched_skills else "-",
+                }
+                for idx, r in enumerate(results)
+            ]
+        )
+
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        st.markdown("### Top 3 Snapshot")
+        for r in results[:3]:
+            st.markdown(f"**{r.name}**")
+            st.progress(min(max(r.final_score / 100, 0.0), 1.0), text=f"Overall: {r.final_score:.1f}%")
+            st.caption(
+                f"Semantic: {r.semantic_score:.1f}% | Skill overlap: {r.skill_overlap_score:.1f}% | "
+                f"Matched skills: {', '.join(r.matched_skills) if r.matched_skills else 'None'}"
+            )
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app()
